@@ -47,10 +47,36 @@ svg { display: block; width: 100%; height: auto; }
 .badge.up { color: var(--up); } .badge.down { color: var(--down); } .badge.att { color: var(--att); }
 .signal p { margin: 4px 0 0; font-size: 0.9rem; color: var(--muted); }
 .signaux .note { margin-top: 4px; }
+
+[hidden] { display: none !important; }
+.bandeau { position: sticky; top: 8px; z-index: 10; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; background: var(--ink); color: var(--card); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; font-size: 0.95rem; }
+.bandeau button { font: inherit; background: transparent; color: inherit; border: 0; font-size: 1.1rem; cursor: pointer; flex-shrink: 0; }
+.alertes { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 18px 14px; margin-bottom: 12px; }
+.alertes h2 { font-size: 1.05rem; margin: 12px 0 0; }
+.alertes h3 { font-size: 0.95rem; margin: 0 0 8px; }
+.bloc { padding: 12px 0; border-top: 1px solid var(--line); }
+.alertes h2 + .bloc { border-top: 0; }
+.formulaire { display: flex; gap: 8px; flex-wrap: wrap; }
+.alertes select, .alertes input[type="text"] { font: inherit; font-size: 16px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink); min-width: 0; }
+.alertes input#al-seuil { flex: 1; min-width: 90px; }
+.alertes input.petit { width: 4.2em; padding: 3px 8px; }
+.btn { font: inherit; font-size: 0.9rem; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--ink); background: var(--ink); color: var(--card); cursor: pointer; }
+.btn.clair { background: transparent; color: var(--ink); border-color: var(--line); }
+.alerte { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.alerte small { display: block; color: var(--muted); }
+.alerte small.att { color: var(--att); }
+.alerte .actions { display: flex; gap: 6px; flex-shrink: 0; }
+.case { display: block; margin: 8px 0; font-size: 0.95rem; }
+.case input[type="checkbox"] { margin-right: 8px; transform: scale(1.2); }
+.vide { color: var(--muted); font-size: 0.9rem; margin: 4px 0; }
+.histo { padding: 6px 0; border-top: 1px solid var(--line); font-size: 0.85rem; }
+.histo small { display: block; color: var(--muted); }
+.actions-bas { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 <main>
+  <div class="bandeau" id="bandeau" role="alert" hidden><span id="bandeau-texte"></span><button id="bandeau-fermer" aria-label="Fermer">✕</button></div>
   <h1>Bitcoin en direct</h1>
 
   <section class="prix">
@@ -92,6 +118,36 @@ svg { display: block; width: 100%; height: auto; }
     <p class="note">Calculés sur le prix en dollars, avec des bougies journalières (le jour en cours compte). Ce ne sont pas des conseils financiers.</p>
   </section>
 
+  <section class="alertes">
+    <h2>Mes alertes</h2>
+    <div class="bloc">
+      <h3>Alertes de prix</h3>
+      <div class="formulaire">
+        <select id="al-sens" aria-label="Sens de l’alerte"><option value="au">Passe au-dessus de</option><option value="sous">Passe sous</option></select>
+        <input id="al-seuil" type="text" inputmode="decimal" placeholder="Ex. 75000" aria-label="Seuil de prix">
+        <select id="al-dev" aria-label="Devise"><option value="USD">$</option><option value="EUR">€</option></select>
+        <button class="btn" id="al-ajouter">Ajouter</button>
+      </div>
+      <p class="note" id="al-msg"></p>
+      <div id="liste-alertes"></div>
+    </div>
+    <div class="bloc">
+      <h3>Signaux à recevoir</h3>
+      <label class="case"><input type="checkbox" id="opt-ma">Croisement 50/200 jours</label>
+      <label class="case"><input type="checkbox" id="opt-rsi">RSI (surachat et survente)</label>
+      <label class="case"><input type="checkbox" id="opt-var">Forte variation sur 24 h, à partir de <input type="text" inputmode="decimal" class="petit" id="opt-seuil"> %</label>
+    </div>
+    <div class="bloc">
+      <h3>Dernières alertes</h3>
+      <div id="historique"></div>
+      <div class="actions-bas">
+        <button class="btn clair" id="al-test">Tester une alerte</button>
+        <button class="btn clair" id="al-effacer">Effacer l’historique</button>
+      </div>
+    </div>
+    <p class="note">Tes réglages sont gardés sur ce téléphone. Les alertes ne se déclenchent que pendant que cette page est ouverte ; les notifications téléphone verrouillé viendront à l’étape suivante.</p>
+  </section>
+
   <p id="maj">Chargement du prix…</p>
 
   <p class="avert">Ces informations ne sont pas des conseils financiers. Le Bitcoin est très volatil et vous pouvez perdre de l’argent.</p>
@@ -127,6 +183,8 @@ async function actualiser() {
     afficher("eur", "eur-var", eur, "EUR");
     afficher("usd", "usd-var", usd, "USD");
     signalVariation(usd.variation);
+    dernierPrix = { EUR: eur.prix, USD: usd.prix };
+    verifierPrix(dernierPrix);
     maj.textContent = "Mis à jour à " + new Date().toLocaleTimeString("fr-FR");
   } catch (e) {
     maj.textContent = "Impossible de récupérer le prix. Vérifiez votre connexion ; nouvel essai dans 10 secondes.";
@@ -239,13 +297,18 @@ function poserSignal(id, etat, classe, texte) {
   e.textContent = etat;
   e.className = "badge " + classe;
   document.getElementById(id + "-texte").textContent = texte;
+  verifierSignal(id, etat);
 }
 
+let derniereVar = null;
 function signalVariation(v) {
+  derniereVar = v;
+  const seuil = reglages.seuilVar;
+  const sTxt = String(seuil).replace(".", ",");
   const txt = Math.abs(v).toFixed(1).replace(".", ",") + " %";
-  if (v >= 5) poserSignal("sig-var", "Forte hausse", "up", "Le prix a monté de " + txt + " en 24 h, au-dessus du seuil de +5 % : mouvement inhabituellement rapide.");
-  else if (v <= -5) poserSignal("sig-var", "Forte baisse", "down", "Le prix a baissé de " + txt + " en 24 h, sous le seuil de −5 % : mouvement inhabituellement rapide.");
-  else poserSignal("sig-var", "Aucun signal", "", "Variation de " + (v >= 0 ? "+" : "−") + txt + " en 24 h : dans la zone normale, entre −5 % et +5 %.");
+  if (v >= seuil) poserSignal("sig-var", "Forte hausse", "up", "Le prix a monté de " + txt + " en 24 h, au-dessus du seuil de +" + sTxt + " % : mouvement inhabituellement rapide.");
+  else if (v <= -seuil) poserSignal("sig-var", "Forte baisse", "down", "Le prix a baissé de " + txt + " en 24 h, sous le seuil de −" + sTxt + " % : mouvement inhabituellement rapide.");
+  else poserSignal("sig-var", "Aucun signal", "", "Variation de " + (v >= 0 ? "+" : "−") + txt + " en 24 h : dans la zone normale, entre −" + sTxt + " % et +" + sTxt + " %.");
 }
 
 async function signauxJournaliers() {
@@ -287,7 +350,139 @@ async function signauxJournaliers() {
   }
 }
 
+// ----- Mes alertes -----
+const CLE = "btc-alertes";
+const DEFAUT = { prix: [], signaux: { ma: true, rsi: true, var: true }, seuilVar: 5, dernierEtat: {}, historique: [] };
+const NOMS = { ma: "Croisement 50/200", rsi: "RSI", var: "Variation 24 h" };
+let dernierPrix = null;
+
+function charger() {
+  const base = JSON.parse(JSON.stringify(DEFAUT));
+  try {
+    const r = JSON.parse(localStorage.getItem(CLE));
+    if (r) return Object.assign(base, r, { signaux: Object.assign(base.signaux, r.signaux) });
+  } catch (e) {}
+  return base;
+}
+let reglages = charger();
+function sauver() { try { localStorage.setItem(CLE, JSON.stringify(reglages)); } catch (e) {} }
+
+function dateCourte(t) {
+  return new Date(t).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+function el(tag, texte, classe) {
+  const e = document.createElement(tag);
+  if (texte) e.textContent = texte;
+  if (classe) e.className = classe;
+  return e;
+}
+function lireNombre(txt) {
+  const n = parseFloat(String(txt).replace(/\s/g, "").replace(",", "."));
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+function declencher(message) {
+  reglages.historique.unshift({ t: Date.now(), m: message });
+  reglages.historique = reglages.historique.slice(0, 30);
+  sauver();
+  document.getElementById("bandeau-texte").textContent = message;
+  document.getElementById("bandeau").hidden = false;
+  try { if (navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch (e) {}
+  dessinerAlertes();
+}
+
+function verifierPrix(prix) {
+  reglages.prix.forEach(a => {
+    if (a.declenchee) return;
+    const p = prix[a.dev];
+    if (p == null) return;
+    if ((a.sens === "au" && p >= a.seuil) || (a.sens === "sous" && p <= a.seuil)) {
+      a.declenchee = Date.now();
+      declencher("Prix : le Bitcoin est " + (a.sens === "au" ? "passé au-dessus de " : "passé sous ") + formater(a.seuil, a.dev) + " (actuellement " + formater(p, a.dev) + ").");
+    }
+  });
+}
+
+function verifierSignal(id, etat) {
+  const cle = id.slice(4);
+  if (reglages.dernierEtat[cle] === etat) return;
+  reglages.dernierEtat[cle] = etat;
+  sauver();
+  if (!reglages.signaux[cle]) return;
+  if (etat === "Aucun signal" || etat === "Indisponible" || etat === "…") return;
+  declencher("Signal " + NOMS[cle] + " : " + etat + ". " + document.getElementById(id + "-texte").textContent);
+}
+
+function dessinerAlertes() {
+  const liste = document.getElementById("liste-alertes");
+  liste.innerHTML = "";
+  if (!reglages.prix.length) liste.appendChild(el("p", "Aucune alerte de prix pour le moment.", "vide"));
+  reglages.prix.forEach(a => {
+    const ligne = el("div", "", "alerte");
+    const texte = el("div");
+    texte.appendChild(el("strong", (a.sens === "au" ? "Au-dessus de " : "Sous ") + formater(a.seuil, a.dev)));
+    texte.appendChild(el("small", a.declenchee ? "Déclenchée le " + dateCourte(a.declenchee) : "En attente", a.declenchee ? "att" : ""));
+    const actions = el("div", "", "actions");
+    if (a.declenchee) {
+      const r = el("button", "Réarmer", "btn clair");
+      r.onclick = () => { a.declenchee = null; sauver(); dessinerAlertes(); };
+      actions.appendChild(r);
+    }
+    const x = el("button", "Supprimer", "btn clair");
+    x.onclick = () => { reglages.prix = reglages.prix.filter(b => b !== a); sauver(); dessinerAlertes(); };
+    actions.appendChild(x);
+    ligne.appendChild(texte);
+    ligne.appendChild(actions);
+    liste.appendChild(ligne);
+  });
+
+  const histo = document.getElementById("historique");
+  histo.innerHTML = "";
+  if (!reglages.historique.length) histo.appendChild(el("p", "Aucune alerte déclenchée pour le moment.", "vide"));
+  reglages.historique.slice(0, 10).forEach(h => {
+    const l = el("div", "", "histo");
+    l.appendChild(el("small", dateCourte(h.t)));
+    l.appendChild(el("span", h.m));
+    histo.appendChild(l);
+  });
+
+  document.getElementById("opt-ma").checked = reglages.signaux.ma;
+  document.getElementById("opt-rsi").checked = reglages.signaux.rsi;
+  document.getElementById("opt-var").checked = reglages.signaux.var;
+}
+
+function brancherAlertes() {
+  document.getElementById("opt-seuil").value = String(reglages.seuilVar).replace(".", ",");
+  ["ma", "rsi", "var"].forEach(cle => {
+    document.getElementById("opt-" + cle).onchange = e => { reglages.signaux[cle] = e.target.checked; sauver(); };
+  });
+  document.getElementById("opt-seuil").onchange = e => {
+    const n = lireNombre(e.target.value);
+    if (n) { reglages.seuilVar = n; sauver(); if (derniereVar !== null) signalVariation(derniereVar); }
+    else e.target.value = String(reglages.seuilVar).replace(".", ",");
+  };
+  document.getElementById("al-ajouter").onclick = () => {
+    const msg = document.getElementById("al-msg");
+    const seuil = lireNombre(document.getElementById("al-seuil").value);
+    if (!seuil) { msg.textContent = "Saisis un nombre supérieur à 0, par exemple 75000."; return; }
+    const sens = document.getElementById("al-sens").value, dev = document.getElementById("al-dev").value;
+    reglages.prix.push({ sens: sens, dev: dev, seuil: seuil, declenchee: null });
+    sauver();
+    document.getElementById("al-seuil").value = "";
+    const p = dernierPrix && dernierPrix[dev];
+    const dejaAtteint = p != null && ((sens === "au" && p >= seuil) || (sens === "sous" && p <= seuil));
+    msg.textContent = dejaAtteint ? "Ce seuil est déjà franchi : l’alerte va se déclencher tout de suite." : "Alerte ajoutée.";
+    dessinerAlertes();
+    if (dernierPrix) verifierPrix(dernierPrix);
+  };
+  document.getElementById("al-test").onclick = () => declencher("Test : ceci est une alerte de démonstration. Si tu vois ce bandeau, l’alerte fonctionne.");
+  document.getElementById("al-effacer").onclick = () => { reglages.historique = []; sauver(); dessinerAlertes(); };
+  document.getElementById("bandeau-fermer").onclick = () => { document.getElementById("bandeau").hidden = true; };
+}
+
 menus();
+brancherAlertes();
+dessinerAlertes();
 actualiser();
 dessiner();
 setInterval(actualiser, 10000);
