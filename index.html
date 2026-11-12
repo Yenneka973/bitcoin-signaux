@@ -256,7 +256,7 @@ async function signauxJournaliers() {
     const c = bougies.map(b => parseFloat(b[4])), t = bougies.map(b => b[0]);
 
     // RSI
-    const rsi = calculRSI(c, 14), rsiTxt = Math.round(rsi);
+    const rsi = calculRSI(c, 14), rsiTxt = rsi.toFixed(1).replace(".", ",");
     if (rsi > 70) poserSignal("sig-rsi", "Surachat", "att", "Le RSI est à " + rsiTxt + ", au-dessus de 70 : les hausses récentes ont été très rapides, ce qui précède parfois une pause ou un repli.");
     else if (rsi < 30) poserSignal("sig-rsi", "Survente", "att", "Le RSI est à " + rsiTxt + ", sous 30 : les baisses récentes ont été très rapides, un rebond est parfois possible mais jamais garanti.");
     else poserSignal("sig-rsi", "Aucun signal", "", "Le RSI est à " + rsiTxt + " : entre 30 et 70, donc ni survente ni surachat.");
