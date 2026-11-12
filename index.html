@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Signaux Bitcoin</title>
+<style>
+:root {
+  --bg: #eef1f4; --card: #ffffff; --ink: #1b2430; --muted: #5d6b7a;
+  --up: #1d7a4b; --down: #b3342b; --line: #d5dbe2;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151b23; --card: #1e2630; --ink: #e8edf2; --muted: #9aa8b6; --up: #4cc38a; --down: #ff7b72; --line: #2d3946; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: Georgia, "Times New Roman", serif; line-height: 1.5; }
+main { max-width: 480px; margin: 0 auto; padding: 20px 16px 32px; }
+h1 { font-size: 1.4rem; margin: 0 0 16px; font-weight: 700; }
+.prix { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 12px; }
+.devise { color: var(--muted); font-size: 0.95rem; }
+.montant { font-size: 2.2rem; font-weight: 700; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.var { font-size: 0.95rem; font-weight: 700; }
+.up { color: var(--up); } .down { color: var(--down); }
+#maj { color: var(--muted); font-size: 0.85rem; margin: 12px 0; min-height: 1.3em; }
+.avert { border-left: 4px solid var(--down); padding: 8px 12px; font-size: 0.85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bitcoin en direct</h1>
+
+  <section class="prix">
+    <div class="devise">Prix en euros</div>
+    <div class="montant" id="eur">…</div>
+    <div class="var" id="eur-var"></div>
+  </section>
+
+  <section class="prix">
+    <div class="devise">Prix en dollars</div>
+    <div class="montant" id="usd">…</div>
+    <div class="var" id="usd-var"></div>
+  </section>
+
+  <p id="maj">Chargement du prix…</p>
+
+  <p class="avert">Ces informations ne sont pas des conseils financiers. Le Bitcoin est très volatil et vous pouvez perdre de l’argent.</p>
+</main>
+
+<script>
+// Source : API publique de Binance (gratuite, sans clé)
+const URL_BASE = "https://api.binance.com/api/v3/ticker/24hr?symbol=";
+
+async function lirePrix(paire) {
+  const reponse = await fetch(URL_BASE + paire);
+  if (!reponse.ok) throw new Error("Erreur " + reponse.status);
+  const d = await reponse.json();
+  return { prix: parseFloat(d.lastPrice), variation: parseFloat(d.priceChangePercent) };
+}
+
+function afficher(idMontant, idVar, donnees, devise) {
+  const montant = donnees.prix.toLocaleString("fr-FR", { style: "currency", currency: devise, maximumFractionDigits: 0 });
+  document.getElementById(idMontant).textContent = montant;
+  const v = document.getElementById(idVar);
+  const signe = donnees.variation >= 0 ? "+" : "";
+  v.textContent = signe + donnees.variation.toFixed(2).replace(".", ",") + " % sur 24 h";
+  v.className = "var " + (donnees.variation >= 0 ? "up" : "down");
+}
+
+async function actualiser() {
+  const maj = document.getElementById("maj");
+  try {
+    const [eur, usd] = await Promise.all([lirePrix("BTCEUR"), lirePrix("BTCUSDT")]);
+    afficher("eur", "eur-var", eur, "EUR");
+    afficher("usd", "usd-var", usd, "USD");
+    maj.textContent = "Mis à jour à " + new Date().toLocaleTimeString("fr-FR");
+  } catch (e) {
+    maj.textContent = "Impossible de récupérer le prix. Vérifiez votre connexion ; nouvel essai dans 10 secondes.";
+  }
+}
+
+actualiser();
+setInterval(actualiser, 10000);
+</script>
+</body>
+</html>
