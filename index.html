@@ -34,6 +34,19 @@ svg { display: block; width: 100%; height: auto; }
 .note { color: var(--muted); font-size: 0.8rem; margin: 8px 0 0; min-height: 1.2em; }
 #maj { color: var(--muted); font-size: 0.85rem; margin: 12px 0; min-height: 1.3em; }
 .avert { border-left: 4px solid var(--down); padding: 8px 12px; font-size: 0.85rem; color: var(--muted); }
+
+:root { --att: #9a6700; }
+@media (prefers-color-scheme: dark) { :root { --att: #e3b341; } }
+.signaux { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 6px 18px 14px; margin-bottom: 12px; }
+.signaux h2 { font-size: 1.05rem; margin: 12px 0 0; }
+.signal { padding: 12px 0; border-top: 1px solid var(--line); }
+.signaux h2 + .signal { border-top: 0; }
+.signal-tete { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.signal-nom { font-weight: 700; }
+.badge { font-size: 0.85rem; font-weight: 700; color: var(--muted); }
+.badge.up { color: var(--up); } .badge.down { color: var(--down); } .badge.att { color: var(--att); }
+.signal p { margin: 4px 0 0; font-size: 0.9rem; color: var(--muted); }
+.signaux .note { margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -60,6 +73,23 @@ svg { display: block; width: 100%; height: auto; }
     <div class="bornes"><span id="bas"></span><span id="haut"></span></div>
     <div class="bornes"><span id="debut"></span><span id="fin"></span></div>
     <p class="note" id="note"></p>
+  </section>
+
+  <section class="signaux">
+    <h2>Signaux techniques</h2>
+    <div class="signal">
+      <div class="signal-tete"><span class="signal-nom">Croisement 50/200 jours</span><span class="badge" id="sig-ma-etat">…</span></div>
+      <p id="sig-ma-texte">Calcul en cours…</p>
+    </div>
+    <div class="signal">
+      <div class="signal-tete"><span class="signal-nom">RSI (14 jours)</span><span class="badge" id="sig-rsi-etat">…</span></div>
+      <p id="sig-rsi-texte">Calcul en cours…</p>
+    </div>
+    <div class="signal">
+      <div class="signal-tete"><span class="signal-nom">Variation sur 24 h</span><span class="badge" id="sig-var-etat">…</span></div>
+      <p id="sig-var-texte">Calcul en cours…</p>
+    </div>
+    <p class="note">Calculés sur le prix en dollars, avec des bougies journalières (le jour en cours compte). Ce ne sont pas des conseils financiers.</p>
   </section>
 
   <p id="maj">Chargement du prix…</p>
@@ -96,6 +126,7 @@ async function actualiser() {
     const [eur, usd] = await Promise.all([lirePrix("BTCEUR"), lirePrix("BTCUSDT")]);
     afficher("eur", "eur-var", eur, "EUR");
     afficher("usd", "usd-var", usd, "USD");
+    signalVariation(usd.variation);
     maj.textContent = "Mis à jour à " + new Date().toLocaleTimeString("fr-FR");
   } catch (e) {
     maj.textContent = "Impossible de récupérer le prix. Vérifiez votre connexion ; nouvel essai dans 10 secondes.";
@@ -188,11 +219,81 @@ async function dessiner() {
   }
 }
 
+// ----- Signaux techniques -----
+function moyenne(a, fin, n) { let s = 0; for (let i = fin - n + 1; i <= fin; i++) s += a[i]; return s / n; }
+
+function calculRSI(c, n) {
+  let gain = 0, perte = 0;
+  for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d >= 0) gain += d; else perte -= d; }
+  gain /= n; perte /= n;
+  for (let i = n + 1; i < c.length; i++) {
+    const d = c[i] - c[i - 1];
+    gain = (gain * (n - 1) + Math.max(d, 0)) / n;
+    perte = (perte * (n - 1) + Math.max(-d, 0)) / n;
+  }
+  return perte === 0 ? 100 : 100 - 100 / (1 + gain / perte);
+}
+
+function poserSignal(id, etat, classe, texte) {
+  const e = document.getElementById(id + "-etat");
+  e.textContent = etat;
+  e.className = "badge " + classe;
+  document.getElementById(id + "-texte").textContent = texte;
+}
+
+function signalVariation(v) {
+  const txt = Math.abs(v).toFixed(1).replace(".", ",") + " %";
+  if (v >= 5) poserSignal("sig-var", "Forte hausse", "up", "Le prix a monté de " + txt + " en 24 h, au-dessus du seuil de +5 % : mouvement inhabituellement rapide.");
+  else if (v <= -5) poserSignal("sig-var", "Forte baisse", "down", "Le prix a baissé de " + txt + " en 24 h, sous le seuil de −5 % : mouvement inhabituellement rapide.");
+  else poserSignal("sig-var", "Aucun signal", "", "Variation de " + (v >= 0 ? "+" : "−") + txt + " en 24 h : dans la zone normale, entre −5 % et +5 %.");
+}
+
+async function signauxJournaliers() {
+  try {
+    const r = await fetch(BASE + "klines?symbol=BTCUSDT&interval=1d&limit=500");
+    if (!r.ok) throw new Error("Erreur " + r.status);
+    const bougies = await r.json();
+    const c = bougies.map(b => parseFloat(b[4])), t = bougies.map(b => b[0]);
+
+    // RSI
+    const rsi = calculRSI(c, 14), rsiTxt = Math.round(rsi);
+    if (rsi > 70) poserSignal("sig-rsi", "Surachat", "att", "Le RSI est à " + rsiTxt + ", au-dessus de 70 : les hausses récentes ont été très rapides, ce qui précède parfois une pause ou un repli.");
+    else if (rsi < 30) poserSignal("sig-rsi", "Survente", "att", "Le RSI est à " + rsiTxt + ", sous 30 : les baisses récentes ont été très rapides, un rebond est parfois possible mais jamais garanti.");
+    else poserSignal("sig-rsi", "Aucun signal", "", "Le RSI est à " + rsiTxt + " : entre 30 et 70, donc ni survente ni surachat.");
+
+    // Croisement des moyennes mobiles 50 et 200 jours
+    let dernier = null;
+    for (let i = 200; i < c.length; i++) {
+      const avant = moyenne(c, i - 1, 50) - moyenne(c, i - 1, 200);
+      const apres = moyenne(c, i, 50) - moyenne(c, i, 200);
+      if (avant <= 0 && apres > 0) dernier = { i: i, sens: "haussier" };
+      if (avant >= 0 && apres < 0) dernier = { i: i, sens: "baissier" };
+    }
+    const fin = c.length - 1, m50 = moyenne(c, fin, 50), m200 = moyenne(c, fin, 200);
+    const jours = dernier ? fin - dernier.i : null;
+    if (dernier && jours <= 7) {
+      const hausse = dernier.sens === "haussier";
+      poserSignal("sig-ma", hausse ? "Croisement haussier" : "Croisement baissier", hausse ? "up" : "down",
+        "La moyenne à 50 jours vient de passer " + (hausse ? "au-dessus de" : "sous") + " celle à 200 jours (il y a " + jours + " j) : la tendance récente " + (hausse ? "se redresse." : "faiblit."));
+    } else {
+      const date = dernier ? new Date(t[dernier.i]).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : null;
+      poserSignal("sig-ma", "Aucun signal", "",
+        "La moyenne à 50 jours (" + formater(m50, "USD") + ") est " + (m50 > m200 ? "au-dessus de" : "sous") + " celle à 200 jours (" + formater(m200, "USD") + ")" +
+        (date ? " ; dernier croisement " + dernier.sens + " le " + date + "." : "."));
+    }
+  } catch (e) {
+    poserSignal("sig-ma", "Indisponible", "", "Impossible de calculer ce signal pour le moment.");
+    poserSignal("sig-rsi", "Indisponible", "", "Impossible de calculer ce signal pour le moment.");
+  }
+}
+
 menus();
 actualiser();
 dessiner();
 setInterval(actualiser, 10000);
 setInterval(dessiner, 60000);
+signauxJournaliers();
+setInterval(signauxJournaliers, 600000);
 </script>
 </body>
 </html>
